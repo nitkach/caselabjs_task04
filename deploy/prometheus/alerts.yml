@@ -1,0 +1,16 @@
+groups:
+  - name: maintenance-api
+    rules:
+      - alert: MaintenanceApiHighServerErrorRate
+        expr: |
+          (
+            sum(rate(maintenance_api_http_requests_total{status_code=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(maintenance_api_http_requests_total[5m])), 0.001)
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Maintenance API 5xx rate is above 5%
+          description: Check the API JSON logs using the requestId and check PostgreSQL readiness.

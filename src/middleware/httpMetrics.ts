@@ -68,8 +68,6 @@ function matchesRouteTemplate(path: string, template: string): boolean {
 }
 
 function getRouteLabel(req: Request): string {
-    const route = req.route?.path;
-    if (typeof route === "string") return `${req.baseUrl}${route}`;
     return knownRouteTemplates.find((template) =>
         matchesRouteTemplate(req.path, template)
     ) ?? "__unmatched__";

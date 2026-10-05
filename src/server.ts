@@ -48,6 +48,7 @@ const startServer = async (): Promise<void> => {
 void startServer().catch(async (error: unknown) => {
     log("fatal", "server_start_failed", {
         errorType: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : String(error),
     });
     try {
         await sequelize.close();

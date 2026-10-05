@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "test": "echo \"No tests configured yet\"",
+    "db:grant:grafana": "node db/grant-grafana-reader.cjs",
     "db:migrate": "sequelize-cli db:migrate --config db/sequelize-cli.cjs --migrations-path db/migrations --seeders-path db/seeders",
     "db:migrate:undo": "sequelize-cli db:migrate:undo --config db/sequelize-cli.cjs --migrations-path db/migrations --seeders-path db/seeders",
     "db:migrate:undo:all": "sequelize-cli db:migrate:undo:all --config db/sequelize-cli.cjs --migrations-path db/migrations --seeders-path db/seeders",

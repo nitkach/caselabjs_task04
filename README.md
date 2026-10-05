@@ -13,17 +13,83 @@ Open-Meteo.
 
 ## Установка и запуск
 
+Для локальной разработки:
+
 ```bash
 npm install
-# Linux/macOS:
-cp .env.example .env
-openssl rand -hex 32
-# Paste the generated value into ACCESS_TOKEN_SECRET in .env
 docker compose up -d db
 npm run db:migrate
 npm run db:seed:all
 npm run dev
 ```
+
+## Развёртывание через Docker Compose
+
+Нужны Linux VM с установленными Docker Engine и Compose plugin. Склонируйте
+репозиторий, скопируйте `.env.example` в `.env` и замените примеры паролей,
+`ACCESS_TOKEN_SECRET` и учётные данные Grafana. Секрет подписи можно получить
+командой `openssl rand -hex 32`. Для начального администратора задайте
+`AUTH_BOOTSTRAP_ADMIN_EMAIL` и `AUTH_BOOTSTRAP_ADMIN_PASSWORD`.
+Задайте `GRAFANA_DOMAIN` равным IP-адресу или DNS-имени VM, по которому
+пользователи открывают сервис.
+
+После настройки `.env` весь стек собирается, применяет миграции и запускается
+одной командой:
+
+```bash
+docker compose up --build -d
+```
+
+Заполните новые `GRAFANA_ADMIN_*` и `GRAFANA_DB_PASSWORD` даже если ранее уже
+создавали локальный `.env` по старому примеру.
+
+Открытым на хосте будет только Nginx (`HTTP_PORT`, по умолчанию `80`).
+PostgreSQL, Node.js API, Prometheus и Grafana доступны внутри Docker-сети.
+Проверить запуск и логи можно командами:
+
+```bash
+docker compose ps
+docker compose logs -f api nginx
+```
+
+Демо-данные не загружаются автоматически. На чистой базе их можно добавить
+отдельным одноразовым шагом; сидер не предназначен для повторного запуска на
+уже заполненной базе:
+
+```bash
+docker compose --profile seed run --rm seed
+```
+
+| Адрес | Назначение |
+|---|---|
+| `http://<VM>/api/health/live` | Liveness процесса |
+| `http://<VM>/api/health/ready` | Готовность API и PostgreSQL |
+| `http://<VM>/api/docs` | Swagger UI (после настройки OpenAPI) |
+| `http://<VM>/grafana/` | Grafana; войти данными `GRAFANA_ADMIN_USER` и `GRAFANA_ADMIN_PASSWORD` |
+
+Grafana автоматически получает Prometheus и PostgreSQL datasource и dashboard
+`CaseLab Maintenance API`. Для SQL-панелей используется отдельный PostgreSQL
+пользователь `grafana_reader` с правами только на чтение разрешённых бизнес-
+таблиц; таблицы пользователей и сессий ему недоступны. После применения
+миграций отдельный шаг автоматически создаёт/обновляет эту роль и выдаёт ей
+права только на необходимые таблицы, в том числе при использовании ранее
+созданного тома. Пароль Grafana для PostgreSQL задаётся отдельно через
+`GRAFANA_DB_PASSWORD`.
+
+Prometheus собирает `/metrics` напрямую внутри Docker-сети. Путь `/metrics` и
+интерфейс Prometheus через Nginx не публикуются; Grafana требует собственную
+авторизацию. Prometheus вычисляет alert `MaintenanceApiHighServerErrorRate`,
+если доля HTTP 5xx выше 5% в течение двух минут. Его состояние можно проверить
+изнутри контейнера:
+
+```bash
+docker compose exec prometheus wget -qO- http://127.0.0.1:9090/api/v1/alerts
+```
+
+При срабатывании проверьте панель ошибок в Grafana, затем сопоставьте период и
+`requestId` с логами `docker compose logs api`; если readiness не проходит,
+проверьте БД командой `docker compose logs db` и состояние `docker compose ps`.
+После исправления проверьте, что alert вернулся в состояние `inactive`.
 
 Перед первым запуском укажите в `.env` `ACCESS_TOKEN_SECRET` (не менее 32
 символов) и задайте `AUTH_BOOTSTRAP_ADMIN_EMAIL` вместе с
@@ -61,6 +127,7 @@ npm start
 |---|---:|---|
 | `NODE_ENV` | - | `production` скрывает детали внутренних ошибок |
 | `PORT` | `3000` | Порт HTTP-сервера |
+| `HTTP_PORT` | `80` | Публикуемый порт Nginx на VM |
 | `CORS_ORIGINS` | `http://localhost:5173` | Разрешённые origins через запятую |
 | `RATE_LIMIT_WINDOW_MS` | `900000` | Окно rate limit, мс |
 | `RATE_LIMIT_MAX` | `100` | Максимум запросов `/api` за окно с одного IP |
@@ -93,6 +160,10 @@ npm start
 | `PG_POOL_MIN` | `0` | Минимальный размер пула Sequelize |
 | `PG_POOL_ACQUIRE_MS` | `30000` | Таймаут получения соединения из пула |
 | `PG_POOL_IDLE_MS` | `10000` | Время простоя соединения до закрытия |
+| `GRAFANA_ADMIN_USER` | `admin` в `.env.example` | Пользователь входа в Grafana |
+| `GRAFANA_ADMIN_PASSWORD` | - | Пароль входа в Grafana; замените пример перед развёртыванием |
+| `GRAFANA_DB_PASSWORD` | - | Пароль ограниченного DB-пользователя Grafana; замените пример перед развёртыванием |
+| `GRAFANA_DOMAIN` | `localhost` | IP-адрес или DNS-имя VM, используемое Grafana для ссылок и перенаправлений |
 
 Для отката последней миграции используйте `npm run db:migrate:undo`, всех
 миграций - `npm run db:migrate:undo:all`. Команды `db:seed:all` и
