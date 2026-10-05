@@ -12,6 +12,7 @@ import {
     ValidationError,
     type ErrorDetail,
 } from "../errors/appError.js";
+import { log } from "../utils/logger.js";
 
 const defaultMessage = "Внутренняя ошибка сервера";
 
@@ -54,7 +55,14 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
             : defaultMessage;
 
     if (statusCode >= 500) {
-        console.error(`[${req.requestId}]`, err);
+        log("error", "http_error", {
+            requestId: req.requestId,
+            method: req.method,
+            path: req.path,
+            statusCode,
+            errorType: err instanceof Error ? err.name : "UnknownError",
+            errorCode: appError?.code,
+        });
     }
 
     const response: {

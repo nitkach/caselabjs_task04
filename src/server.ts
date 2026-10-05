@@ -2,6 +2,7 @@ import { app } from "./app.js";
 import { env } from "./config/env.js";
 import { sequelize, waitForDatabase } from "./config/database.js";
 import { authService } from "./services/auth.service.js";
+import { log } from "./utils/logger.js";
 
 const port = env.port;
 
@@ -10,22 +11,33 @@ const startServer = async (): Promise<void> => {
     await authService.bootstrapAccounts();
 
     const server = app.listen(port, () => {
-        console.log(`Server started on http://localhost:${port}`);
+        log("info", "server_started", { port });
     });
 
+    let isShuttingDown = false;
     for (const signal of ["SIGINT", "SIGTERM"] as const) {
-        process.on(signal, () => {
-            console.log(`Получен ${signal}, завершаю работу`);
+        process.once(signal, () => {
+            if (isShuttingDown) return;
+            isShuttingDown = true;
+            log("info", "server_shutdown_started", { signal });
+
             server.close((error) => {
+                if (error) {
+                    log("error", "http_server_close_failed", {
+                        signal,
+                        errorType: error.name,
+                    });
+                    process.exitCode = 1;
+                }
                 void sequelize.close().then(() => {
-                    if (error) {
-                        console.error("Ошибка при остановке HTTP-сервера", error);
-                        process.exitCode = 1;
-                        return;
-                    }
-                    process.exitCode = 0;
+                    log("info", "server_shutdown_complete", { signal });
                 }).catch((closeError: unknown) => {
-                    console.error("Ошибка при закрытии соединения с БД", closeError);
+                    log("error", "database_close_failed", {
+                        signal,
+                        errorType: closeError instanceof Error
+                            ? closeError.name
+                            : "UnknownError",
+                    });
                     process.exitCode = 1;
                 });
             });
@@ -34,7 +46,15 @@ const startServer = async (): Promise<void> => {
 };
 
 void startServer().catch(async (error: unknown) => {
-    console.error("Не удалось подключиться к базе данных или запустить сервер", error);
-    await sequelize.close();
+    log("fatal", "server_start_failed", {
+        errorType: error instanceof Error ? error.name : "UnknownError",
+    });
+    try {
+        await sequelize.close();
+    } catch (closeError: unknown) {
+        log("error", "database_close_failed", {
+            errorType: closeError instanceof Error ? closeError.name : "UnknownError",
+        });
+    }
     process.exitCode = 1;
 });

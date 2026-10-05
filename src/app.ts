@@ -14,11 +14,15 @@ import { authRouter } from "./routes/auth.routes.js";
 import { equipmentRouter } from "./routes/equipment.routes.js";
 import { maintenanceRequestRouter } from "./routes/maintenanceRequest.routes.js";
 import { reportRouter } from "./routes/report.routes.js";
+import { httpMetrics, metricsRegistry } from "./middleware/httpMetrics.js";
+import { log } from "./utils/logger.js";
 
 export const app = express();
-app.set("trust proxy", 1);
+app.set("trust proxy", env.trustProxyHops);
 
 app.use(requestId);
+app.use(httpMetrics);
+app.use(requestLogger);
 
 app.use(
     helmet({
@@ -69,21 +73,40 @@ const apiLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+app.get("/metrics", async (_req, res, next) => {
+    try {
+        res.setHeader("Content-Type", metricsRegistry.contentType);
+        res.send(await metricsRegistry.metrics());
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.use("/api", apiLimiter);
-app.use(requestLogger);
 app.use(express.json({ limit: env.jsonBodyLimit }));
 app.use(express.urlencoded({ extended: false, limit: env.urlEncodedBodyLimit }));
 app.use(cookieParser());
 
-app.get("/api/health", async (_req, res) => {
+const liveHandler = (_req: express.Request, res: express.Response): void => {
+    res.json({ status: "ok" });
+};
+
+const readyHandler = async (req: express.Request, res: express.Response): Promise<void> => {
     try {
         await sequelize.authenticate();
         res.json({ status: "ok", database: "up" });
-    } catch (error) {
-        console.error("Database health check failed", error);
+    } catch {
+        log("warn", "readiness_check_failed", {
+            requestId: req.requestId,
+            dependency: "postgres",
+        });
         res.status(503).json({ status: "error", database: "down" });
     }
-});
+};
+
+app.get("/api/health/live", liveHandler);
+app.get("/api/health/ready", readyHandler);
+app.get("/api/health", readyHandler);
 
 app.use("/api/auth", authRouter);
 app.use("/api", equipmentRouter);

@@ -12,6 +12,7 @@ import {
     SiteEntity,
     TechnicianEntity,
 } from "../models/entities/index.js";
+import { log } from "../utils/logger.js";
 
 export const sequelize = new Sequelize({
     dialect: "postgres",
@@ -43,7 +44,11 @@ export async function waitForDatabase({ attempts = 10, baseDelayMs = 500 } = {})
         } catch (err) {
             if (attempt === attempts) throw err;
             const delay = baseDelayMs * attempt;
-            console.warn(`База недоступна (попытка ${attempt}/${attempts}), повтор через ${delay} мс`);
+            log("warn", "database_connection_retry", {
+                attempt,
+                attempts,
+                retryAfterMs: delay,
+            });
             await new Promise((resolve) => setTimeout(resolve, delay));
         }
     }

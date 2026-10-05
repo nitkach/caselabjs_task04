@@ -40,7 +40,9 @@ npm run dev
 и не наполняют базу. Так как пакет использует ESM, файлы CLI миграций и сидов
 должны быть CommonJS-файлами `.cjs` (сгенерированный CLI `.js` нужно переименовать).
 Сервер дожидается доступности PostgreSQL перед запуском;
-`GET /api/health` проверяет подключение через Sequelize.
+`GET /api/health/live` проверяет, что процесс отвечает, а
+`GET /api/health/ready` проверяет подключение к PostgreSQL. Старый путь
+`GET /api/health` оставлен как alias readiness-проверки.
 
 Для production:
 
@@ -64,6 +66,8 @@ npm start
 | `RATE_LIMIT_MAX` | `100` | Максимум запросов `/api` за окно с одного IP |
 | `JSON_BODY_LIMIT` | `2mb` | Максимальный JSON body |
 | `URL_ENCODED_BODY_LIMIT` | `10kb` | Максимальный URL-encoded body |
+| `LOG_LEVEL` | `info` | Минимальный уровень структурированных логов: `fatal`, `error`, `warn`, `info`, `debug` |
+| `TRUST_PROXY_HOPS` | `1` | Число доверенных proxy hops перед API; выставить равным числу reverse proxy |
 | `ACCESS_TOKEN_SECRET` | обязательна | Секрет подписи access-токенов, минимум 32 символа |
 | `AUTH_COOKIE_SECURE` | `true` в production, иначе `false` | Добавляет флаг `Secure` refresh-cookie; для выбранного HTTP-развёртывания в `.env` выставить `false` |
 | `AUTH_COOKIE_SAME_SITE` | `lax` | Атрибут SameSite refresh-cookie; `none` требует `Secure=true` |
@@ -107,6 +111,8 @@ npm start
 | POST | `/auth/logout` | Отзыв refresh-сессии и удаление cookie |
 | GET | `/auth/me` | Текущий пользователь и роль (нужен Bearer-токен) |
 | GET | `/health` | Проверка сервиса |
+| GET | `/health/live` | Liveness-проверка процесса без обращения к БД |
+| GET | `/health/ready` | Readiness-проверка, включает доступность PostgreSQL |
 | GET | `/equipment` | Список оборудования: фильтры, сортировка, пагинация |
 | POST | `/equipment` | Создание оборудования |
 | GET | `/equipment/:id` | Получение оборудования |
@@ -125,6 +131,10 @@ npm start
 | DELETE | `/requests/:id` | Удаление заявки |
 | GET | `/sites/:id/summary` | Сводка по площадке |
 | GET | `/reports/equipment-load` | SQL-отчёт по нагрузке оборудования |
+
+Метрики Prometheus доступны отдельно от API по `GET /metrics`; этот путь
+предназначен для внутреннего сбора и должен быть закрыт от внешних клиентов на
+уровне reverse proxy.
 
 Кроме `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout` и
 `/health`, все API-маршруты требуют заголовок
@@ -380,6 +390,17 @@ curl -X PATCH http://localhost:3000/api/requests/<done-request-id>/status \
   встраивания во frame.
 - Размеры JSON и URL-encoded тела ограничены соответствующими переменными.
 - `requestId` возвращается в ошибке и записывается в логах для диагностики.
+- Логи выводятся построчно в JSON в stdout, с `requestId`, путём без query
+  string, статусом, длительностью и IP клиента. Уровень задаётся `LOG_LEVEL`.
+- `GET /metrics` отдаёт стандартный Prometheus exposition format, включая
+  `maintenance_api_http_requests_total`, `maintenance_api_http_request_duration_seconds`
+  и `maintenance_api_http_errors_total`. Метрики разбиты по методу, шаблону
+  маршрута и коду ответа; URL-параметры не создают отдельные серии.
+- `/api/health/live` не зависит от PostgreSQL; `/api/health/ready` возвращает
+  `503`, когда БД недоступна.
+- За Nginx выставьте `TRUST_PROXY_HOPS` в число proxy hops (обычно `1`) и не
+  публикуйте порт Node.js напрямую: Express использует эту настройку для IP
+  клиента и ограничителя частоты.
 
 ## Структура проекта
 

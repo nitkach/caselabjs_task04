@@ -29,6 +29,8 @@ const bootstrapAdminPassword = process.env.AUTH_BOOTSTRAP_ADMIN_PASSWORD;
 const bootstrapTechnicianEmail = process.env.AUTH_BOOTSTRAP_TECHNICIAN_EMAIL?.trim().toLowerCase();
 const bootstrapTechnicianPassword = process.env.AUTH_BOOTSTRAP_TECHNICIAN_PASSWORD;
 const bootstrapTechnicianId = process.env.AUTH_BOOTSTRAP_TECHNICIAN_ID?.trim();
+const logLevel = process.env.LOG_LEVEL ?? "info";
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 1);
 
 for (const [name, value] of Object.entries({
     PGPORT: databasePort,
@@ -36,10 +38,18 @@ for (const [name, value] of Object.entries({
     PG_POOL_MIN: poolMin,
     PG_POOL_ACQUIRE_MS: poolAcquire,
     PG_POOL_IDLE_MS: poolIdle,
+    TRUST_PROXY_HOPS: trustProxyHops,
 })) {
     if (!Number.isSafeInteger(value) || value < 0) {
         throw new Error(`Environment variable ${name} must be a non-negative integer`);
     }
+}
+
+if (trustProxyHops > 10) {
+    throw new Error("TRUST_PROXY_HOPS must not exceed 10");
+}
+if (!["fatal", "error", "warn", "info", "debug"].includes(logLevel)) {
+    throw new Error("LOG_LEVEL must be fatal, error, warn, info, or debug");
 }
 
 if (databasePort === 0 || poolMax === 0 || poolMin > poolMax || poolAcquire === 0) {
@@ -89,6 +99,8 @@ export const env = {
     rateLimitMax: Number(process.env.RATE_LIMIT_MAX ?? 100),
     jsonBodyLimit: process.env.JSON_BODY_LIMIT ?? "2mb",
     urlEncodedBodyLimit: process.env.URL_ENCODED_BODY_LIMIT ?? "10kb",
+    logLevel: logLevel as "fatal" | "error" | "warn" | "info" | "debug",
+    trustProxyHops,
     accessTokenSecret,
     authCookieSecure: authCookieSecureValue === "true",
     authCookieSameSite: authCookieSameSite as "strict" | "lax" | "none",

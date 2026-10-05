@@ -15,7 +15,10 @@ export const requestId = (
     next: NextFunction,
 ): void => {
     const value = req.header("x-request-id");
-    const id = value && value.trim() ? value.trim() : randomUUID();
+    const candidate = value?.trim();
+    const id = candidate && /^[a-zA-Z0-9._-]{1,128}$/.test(candidate)
+        ? candidate
+        : randomUUID();
 
     req.requestId = id;
     res.setHeader("X-Request-Id", id);
