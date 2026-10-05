@@ -3,6 +3,7 @@ import helmet from "helmet";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
+import swaggerUi from "swagger-ui-express";
 
 import { env } from "./config/env.js";
 import { sequelize } from "./config/database.js";
@@ -16,6 +17,7 @@ import { maintenanceRequestRouter } from "./routes/maintenanceRequest.routes.js"
 import { reportRouter } from "./routes/report.routes.js";
 import { httpMetrics, metricsRegistry } from "./middleware/httpMetrics.js";
 import { log } from "./utils/logger.js";
+import { openApiDocument } from "./docs/openapi.js";
 
 export const app = express();
 app.set("trust proxy", env.trustProxyHops);
@@ -81,6 +83,15 @@ app.get("/metrics", async (_req, res, next) => {
         next(error);
     }
 });
+
+app.get("/api/openapi.json", (_req, res) => {
+    res.json(openApiDocument);
+});
+
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openApiDocument, {
+    customSiteTitle: "CaseLab Maintenance API Docs",
+    customCss: ".swagger-ui .topbar { display: none; }",
+}));
 
 app.use("/api", apiLimiter);
 app.use(express.json({ limit: env.jsonBodyLimit }));
