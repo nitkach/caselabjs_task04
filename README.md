@@ -15,12 +15,25 @@ Open-Meteo.
 
 ```bash
 npm install
-copy .env.example .env
+# Linux/macOS:
+cp .env.example .env
+openssl rand -hex 32
+# Paste the generated value into ACCESS_TOKEN_SECRET in .env
 docker compose up -d db
 npm run db:migrate
 npm run db:seed:all
 npm run dev
 ```
+
+Перед первым запуском укажите в `.env` `ACCESS_TOKEN_SECRET` (не менее 32
+символов) и задайте `AUTH_BOOTSTRAP_ADMIN_EMAIL` вместе с
+`AUTH_BOOTSTRAP_ADMIN_PASSWORD`. При старте API создаст эту учётную запись с
+ролью `admin`, если её ещё нет. Пароль существующей учётной записи при
+перезапуске не меняется. Для входа техника задайте все три переменные
+`AUTH_BOOTSTRAP_TECHNICIAN_EMAIL`, `AUTH_BOOTSTRAP_TECHNICIAN_PASSWORD` и
+`AUTH_BOOTSTRAP_TECHNICIAN_ID`; сначала примените сиды, затем возьмите ID
+специалиста из `technicians`. Обычная регистрация всегда создаёт только
+`viewer`.
 
 Миграции и сиды создаются в `db/migrations` и `db/seeders`. До добавления
 соответствующих файлов команды миграции/сидирования не создают прикладную схему
@@ -51,6 +64,14 @@ npm start
 | `RATE_LIMIT_MAX` | `100` | Максимум запросов `/api` за окно с одного IP |
 | `JSON_BODY_LIMIT` | `2mb` | Максимальный JSON body |
 | `URL_ENCODED_BODY_LIMIT` | `10kb` | Максимальный URL-encoded body |
+| `ACCESS_TOKEN_SECRET` | обязательна | Секрет подписи access-токенов, минимум 32 символа |
+| `AUTH_COOKIE_SECURE` | `true` в production, иначе `false` | Добавляет флаг `Secure` refresh-cookie; для выбранного HTTP-развёртывания в `.env` выставить `false` |
+| `AUTH_COOKIE_SAME_SITE` | `lax` | Атрибут SameSite refresh-cookie; `none` требует `Secure=true` |
+| `AUTH_BOOTSTRAP_ADMIN_EMAIL` | - | Email начального администратора; задавать вместе с паролем |
+| `AUTH_BOOTSTRAP_ADMIN_PASSWORD` | - | Пароль начального администратора |
+| `AUTH_BOOTSTRAP_TECHNICIAN_EMAIL` | - | Email начального техника; задавать вместе с паролем и ID |
+| `AUTH_BOOTSTRAP_TECHNICIAN_PASSWORD` | - | Пароль начального техника |
+| `AUTH_BOOTSTRAP_TECHNICIAN_ID` | - | ID существующего специалиста из `technicians` |
 | `WEATHER_API_URL` | Open-Meteo | URL внешнего погодного API |
 | `REQUEST_TIMEOUT_MS` | `5000` | Таймаут запроса к погодному API |
 | `WEATHER_FORECAST_DAYS` | `3` | Количество дней прогноза |
@@ -80,6 +101,11 @@ npm start
 
 | Метод | Путь | Назначение |
 |---|---|---|
+| POST | `/auth/register` | Регистрация пользователя с ролью `viewer` |
+| POST | `/auth/login` | Вход, access-токен и HttpOnly refresh-cookie |
+| POST | `/auth/refresh` | Ротация refresh-cookie и выдача нового access-токена |
+| POST | `/auth/logout` | Отзыв refresh-сессии и удаление cookie |
+| GET | `/auth/me` | Текущий пользователь и роль (нужен Bearer-токен) |
 | GET | `/health` | Проверка сервиса |
 | GET | `/equipment` | Список оборудования: фильтры, сортировка, пагинация |
 | POST | `/equipment` | Создание оборудования |
@@ -99,6 +125,28 @@ npm start
 | DELETE | `/requests/:id` | Удаление заявки |
 | GET | `/sites/:id/summary` | Сводка по площадке |
 | GET | `/reports/equipment-load` | SQL-отчёт по нагрузке оборудования |
+
+Кроме `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout` и
+`/health`, все API-маршруты требуют заголовок
+`Authorization: Bearer <accessToken>`.
+
+| Роль | Права |
+|---|---|
+| `viewer` | Чтение оборудования, заявок, истории и отчётов |
+| `technician` | Права viewer, создание и редактирование заявок; смена статуса только назначенных ему заявок |
+| `admin` | Все операции: изменение/удаление оборудования и заявок, назначение бригад |
+
+Access-токен действует 15 минут. Refresh-токен случайный, хранится в БД только
+в виде SHA-256-хеша, а в браузер передаётся в HttpOnly cookie сроком на 30 дней;
+при обновлении старый токен отзывается. Для HTTP-развёртывания на учебной VM
+`AUTH_COOKIE_SECURE=false`, иначе браузер не отправит cookie без HTTPS. При
+переходе на HTTPS включите `AUTH_COOKIE_SECURE=true`. `SameSite=Lax` ограничивает
+межсайтовую отправку cookie и подходит для UI/API на одном сайте; для
+межсайтовой схемы понадобится `SameSite=None; Secure` и отдельная защита от
+CSRF.
+
+Лимит входа отдельный: не более 10 попыток за 15 минут с одного IP. Ошибочный
+вход возвращает одинаковый ответ для неизвестного email и неверного пароля.
 
 У списков доступны `page`, `limit` (до 100), `sortBy`, `sortOrder`, а также
 ресурсные фильтры: `status`, `type`, `priority`, `equipmentId` и диапазоны дат.
@@ -273,6 +321,7 @@ datetime, фильтр по `created_at` заявок) и `minRequests` (цел�
 ```
 
 Основные коды: `400` - ошибка валидации, `404` - ресурс не найден,
+`401` - отсутствующая/невалидная аутентификация, `403` - недостаточно прав,
 `409` - конфликт, `422` - бизнес-правило бригады не выполнено,
 `429` - превышен лимит, `502` - недоступен погодный сервис, `500` - внутренняя
 ошибка. В development добавляется `stack`; в production детали внутренних
@@ -322,6 +371,11 @@ curl -X PATCH http://localhost:3000/api/requests/<done-request-id>/status \
 - CORS разрешает только origins из `CORS_ORIGINS`.
 - Для всех `/api` включён rate limit: по умолчанию 100 запросов за 15 минут
   с одного IP; при превышении возвращается `429` и `RateLimit-*` headers.
+- Пароли хранятся в bcrypt-хеше; в API-ответы и логи пароли/хеши не включаются.
+- Access-токены подписываются `ACCESS_TOKEN_SECRET` и действуют 15 минут;
+  refresh-токены отзываются и ротируются при обновлении.
+- Регистрация не позволяет выбрать роль; повышение прав возможно только
+  при bootstrap начальных аккаунтов и прямом администрировании БД.
 - `helmet` устанавливает защитные заголовки, включая HSTS и запрет
   встраивания во frame.
 - Размеры JSON и URL-encoded тела ограничены соответствующими переменными.

@@ -21,6 +21,7 @@ import type {
 import type { MaintenanceRequestListQuery } from "../schemas/list.schema.js";
 import {
     ConflictError,
+    ForbiddenError,
     NotFoundError,
     UnprocessableEntityError,
 } from "../errors/appError.js";
@@ -55,7 +56,10 @@ export class MaintenanceRequestService {
         return request;
     }
 
-    async create(input: CreateMaintenanceRequestInput): Promise<MaintenanceRequest> {
+    async create(
+        input: CreateMaintenanceRequestInput,
+        author = "system",
+    ): Promise<MaintenanceRequest> {
         const equipment = await this.equipmentRepo.findById(input.equipmentId);
         if (!equipment) {
             throw new NotFoundError("Equipment not found");
@@ -69,6 +73,7 @@ export class MaintenanceRequestService {
                     ? {}
                     : { description: input.description }),
                 priority: input.priority,
+                author,
                 ...(input.plannedAt === undefined
                     ? {}
                     : { plannedAt: new Date(input.plannedAt) }),
@@ -124,6 +129,8 @@ export class MaintenanceRequestService {
     async updateStatus(
         id: string,
         input: UpdateMaintenanceRequestStatusInput,
+        actor = input.changedBy ?? "system",
+        technicianId?: string | null,
     ): Promise<MaintenanceRequest> {
         return sequelize.transaction(async (transaction) => {
             const current = await this.maintenanceRequestRepo.findByIdForUpdate(
@@ -132,6 +139,18 @@ export class MaintenanceRequestService {
             );
             if (!current) {
                 throw new NotFoundError("Maintenance request not found");
+            }
+            if (
+                technicianId !== undefined
+                && (!technicianId || !await this.maintenanceRequestRepo.isAssignedTechnician(
+                    id,
+                    technicianId,
+                    transaction,
+                ))
+            ) {
+                throw new ForbiddenError(
+                    "Technicians can only change the status of assigned requests",
+                );
             }
 
             const allowedTransitions: Record<
@@ -168,7 +187,7 @@ export class MaintenanceRequestService {
                 requestId: id,
                 previousStatus: current.status,
                 newStatus: input.status,
-                changedBy: input.changedBy ?? "system",
+                changedBy: actor,
                 comment: input.comment ?? null,
             }, transaction);
 

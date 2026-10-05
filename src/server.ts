@@ -1,11 +1,13 @@
 import { app } from "./app.js";
 import { env } from "./config/env.js";
 import { sequelize, waitForDatabase } from "./config/database.js";
+import { authService } from "./services/auth.service.js";
 
 const port = env.port;
 
 const startServer = async (): Promise<void> => {
     await waitForDatabase();
+    await authService.bootstrapAccounts();
 
     const server = app.listen(port, () => {
         console.log(`Server started on http://localhost:${port}`);

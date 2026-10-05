@@ -23,6 +23,7 @@ export type EquipmentState =
 export type RequestPriority = "low" | "medium" | "high" | "critical";
 export type RequestState = "new" | "in_progress" | "done" | "rejected";
 export type AssigneeRole = "lead" | "member";
+export type UserRole = "viewer" | "technician" | "admin";
 
 @Table({ tableName: "sites", timestamps: true, underscored: true })
 export class SiteEntity extends Model {
@@ -329,4 +330,86 @@ export class RequestAssigneeEntity extends Model {
 
     @BelongsTo(() => TechnicianEntity, "technicianId")
     declare technician?: TechnicianEntity;
+}
+
+@Table({
+    tableName: "auth_users",
+    timestamps: true,
+    underscored: true,
+    indexes: [{ unique: true, fields: ["email"] }],
+})
+export class AuthUserEntity extends Model {
+    @PrimaryKey
+    @Default(DataType.UUIDV4)
+    @Column(DataType.UUID)
+    declare id: string;
+
+    @Unique
+    @AllowNull(false)
+    @Column(DataType.STRING(254))
+    declare email: string;
+
+    @AllowNull(false)
+    @Column({ type: DataType.STRING(255), field: "password_hash" })
+    declare passwordHash: string;
+
+    @AllowNull(false)
+    @Default("viewer")
+    @Column(DataType.STRING(20))
+    declare role: UserRole;
+
+    @ForeignKey(() => TechnicianEntity)
+    @Unique
+    @AllowNull(true)
+    @Column({ type: DataType.UUID, field: "technician_id" })
+    declare technicianId: string | null;
+
+    declare createdAt: Date;
+    declare updatedAt: Date;
+
+    @BelongsTo(() => TechnicianEntity, "technicianId")
+    declare technician?: TechnicianEntity | null;
+
+    @HasMany(() => AuthSessionEntity, "userId")
+    declare sessions?: AuthSessionEntity[];
+}
+
+@Table({
+    tableName: "auth_sessions",
+    timestamps: true,
+    underscored: true,
+    indexes: [
+        { unique: true, fields: ["token_hash"] },
+        { fields: ["user_id"] },
+        { fields: ["expires_at"] },
+    ],
+})
+export class AuthSessionEntity extends Model {
+    @PrimaryKey
+    @Default(DataType.UUIDV4)
+    @Column(DataType.UUID)
+    declare id: string;
+
+    @ForeignKey(() => AuthUserEntity)
+    @AllowNull(false)
+    @Column({ type: DataType.UUID, field: "user_id" })
+    declare userId: string;
+
+    @AllowNull(false)
+    @Column({ type: DataType.STRING(64), field: "token_hash" })
+    declare tokenHash: string;
+
+    @AllowNull(false)
+    @Column({ type: DataType.DATE, field: "expires_at" })
+    declare expiresAt: Date;
+
+    @AllowNull(true)
+    @Column({ type: DataType.DATE, field: "revoked_at" })
+    declare revokedAt: Date | null;
+
+    declare createdAt: Date;
+    declare updatedAt: Date;
+
+    @BelongsTo(() => AuthUserEntity, "userId")
+    declare user?: AuthUserEntity;
 }

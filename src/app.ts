@@ -2,6 +2,7 @@ import express from "express";
 import helmet from "helmet";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
+import cookieParser from "cookie-parser";
 
 import { env } from "./config/env.js";
 import { sequelize } from "./config/database.js";
@@ -9,11 +10,13 @@ import { requestLogger } from "./middleware/requestLogger.js";
 import { requestId } from "./middleware/requestId.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { notFoundHandler } from "./middleware/notFoundHandler.js";
+import { authRouter } from "./routes/auth.routes.js";
 import { equipmentRouter } from "./routes/equipment.routes.js";
 import { maintenanceRequestRouter } from "./routes/maintenanceRequest.routes.js";
 import { reportRouter } from "./routes/report.routes.js";
 
 export const app = express();
+app.set("trust proxy", 1);
 
 app.use(requestId);
 
@@ -47,6 +50,7 @@ app.use(
 app.use(
     cors({
         origin: env.corsOrigins,
+        credentials: true,
         methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allowedHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
     })
@@ -69,6 +73,7 @@ app.use("/api", apiLimiter);
 app.use(requestLogger);
 app.use(express.json({ limit: env.jsonBodyLimit }));
 app.use(express.urlencoded({ extended: false, limit: env.urlEncodedBodyLimit }));
+app.use(cookieParser());
 
 app.get("/api/health", async (_req, res) => {
     try {
@@ -80,6 +85,7 @@ app.get("/api/health", async (_req, res) => {
     }
 });
 
+app.use("/api/auth", authRouter);
 app.use("/api", equipmentRouter);
 app.use("/api", maintenanceRequestRouter);
 app.use("/api", reportRouter);

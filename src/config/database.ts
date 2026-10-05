@@ -4,6 +4,8 @@ import { env } from "./env.js";
 import {
     EquipmentEntity,
     EquipmentPassportEntity,
+    AuthSessionEntity,
+    AuthUserEntity,
     MaintenanceRequestEntity,
     RequestAssigneeEntity,
     RequestStatusHistoryEntity,
@@ -28,6 +30,8 @@ export const sequelize = new Sequelize({
         RequestStatusHistoryEntity,
         TechnicianEntity,
         RequestAssigneeEntity,
+        AuthUserEntity,
+        AuthSessionEntity,
     ],
 });
 

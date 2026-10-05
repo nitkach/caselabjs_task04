@@ -29,7 +29,10 @@ export async function createMaintenanceRequest(
     req: Request<Record<string, never>, unknown, CreateMaintenanceRequestInput>,
     res: Response<unknown>
 ): Promise<void> {
-    const maintenanceRequest = await maintenanceRequestService.create(req.body);
+    const maintenanceRequest = await maintenanceRequestService.create(
+        req.body,
+        req.authUser?.email ?? "system",
+    );
 
     res.status(201).json({
         success: true,
@@ -63,7 +66,11 @@ export async function patchMaintenanceRequestStatus(
 ): Promise<void> {
     const maintenanceRequest = await maintenanceRequestService.updateStatus(
         req.params.id,
-        req.body,
+        { ...req.body, changedBy: req.authUser?.email },
+        req.authUser?.email,
+        req.authUser?.role === "technician"
+            ? req.authUser.technicianId
+            : undefined,
     );
 
     res.status(200).json({
