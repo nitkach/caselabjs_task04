@@ -11,6 +11,8 @@ import {
 } from "../controllers/equipment.controller.js";
 import { validateRequest } from "../middleware/validateRequest.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
+import { authenticate } from "../middleware/authenticate.js";
+import { requireRole } from "../middleware/requireRole.js";
 import {
     createEquipmentSchema,
     updateEquipmentSchema,
@@ -18,10 +20,12 @@ import {
 
 export const equipmentRouter = Router();
 
+equipmentRouter.use("/equipment", authenticate);
 equipmentRouter.get("/equipment", listEquipment);
 
 equipmentRouter.post(
     "/equipment",
+    requireRole("admin"),
     validateRequest(createEquipmentSchema),
     createEquipment,
 );
@@ -30,12 +34,14 @@ equipmentRouter.get("/equipment/:id", getEquipment);
 
 equipmentRouter.patch(
     "/equipment/:id",
+    requireRole("admin"),
     validateRequest(updateEquipmentSchema),
     patchEquipment,
 );
 
 equipmentRouter.delete(
     "/equipment/:id",
+    requireRole("admin"),
     deleteEquipment
 );
 

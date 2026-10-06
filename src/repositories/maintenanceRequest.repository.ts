@@ -144,17 +144,17 @@ export class MaintenanceRequestRepository {
         description?: string;
         priority: MaintenanceRequest["priority"];
         plannedAt?: Date;
+        author: string;
     }, transaction: Transaction): Promise<MaintenanceRequestEntity> {
         const entity = await MaintenanceRequestEntity.create({
             ...input,
             status: "new",
-            author: "system",
         }, { transaction });
         await RequestStatusHistoryEntity.create({
             requestId: entity.id,
             previousStatus: null,
             newStatus: "new",
-            changedBy: "system",
+            changedBy: input.author,
             comment: "Request created",
             changedAt: new Date(),
         }, { transaction });
@@ -193,6 +193,17 @@ export class MaintenanceRequestRepository {
             where: { requestId },
             transaction,
         });
+    }
+
+    async isAssignedTechnician(
+        requestId: string,
+        technicianId: string,
+        transaction: Transaction,
+    ): Promise<boolean> {
+        return (await RequestAssigneeEntity.count({
+            where: { requestId, technicianId },
+            transaction,
+        })) > 0;
     }
 
     async findAssignee(

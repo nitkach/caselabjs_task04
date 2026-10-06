@@ -9,6 +9,8 @@ export type AppErrorCode =
     | "CONFLICT"
     | "UNPROCESSABLE_ENTITY"
     | "EXTERNAL_SERVICE_ERROR"
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
     | "INTERNAL_SERVER_ERROR";
 
 export abstract class AppError extends Error {
@@ -67,5 +69,19 @@ export class ExternalServiceError extends AppError {
     constructor(message = "External service is unavailable") {
         super(502, message, "EXTERNAL_SERVICE_ERROR");
         this.name = "ExternalServiceError";
+    }
+}
+
+export class UnauthorizedError extends AppError {
+    constructor(message = "Authentication required") {
+        super(401, message, "UNAUTHORIZED");
+        this.name = "UnauthorizedError";
+    }
+}
+
+export class ForbiddenError extends AppError {
+    constructor(message = "You do not have permission to perform this action") {
+        super(403, message, "FORBIDDEN");
+        this.name = "ForbiddenError";
     }
 }

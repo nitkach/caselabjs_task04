@@ -1,0 +1,271 @@
+{
+  "uid": "caselab-maintenance",
+  "title": "CaseLab Maintenance API",
+  "tags": ["caselab", "maintenance"],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP requests per second",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum by (method) (rate(maintenance_api_http_requests_total[5m]))",
+          "legendFormat": "{{method}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "HTTP 4xx / 5xx responses per second",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum by (status_code) (rate(maintenance_api_http_requests_total{status_code=~\"4..|5..\"}[5m]))",
+          "legendFormat": "{{status_code}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "HTTP response time p95",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(maintenance_api_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "API availability",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"maintenance-api\"}",
+          "legendFormat": "maintenance-api",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Maintenance requests by status",
+      "type": "barchart",
+      "datasource": {
+        "type": "postgres",
+        "uid": "maintenance-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT status AS metric, COUNT(*)::bigint AS value FROM maintenance_requests GROUP BY status ORDER BY status",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "xField": "metric",
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "showValue": "always",
+        "stacking": "none",
+        "groupWidth": 0.7,
+        "barWidth": 0.97,
+        "barRadius": 0
+      }
+    },
+    {
+      "id": 6,
+      "title": "Maintenance requests by priority",
+      "type": "barchart",
+      "datasource": {
+        "type": "postgres",
+        "uid": "maintenance-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT priority AS metric, COUNT(*)::bigint AS value FROM maintenance_requests GROUP BY priority ORDER BY priority",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "xField": "metric",
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "showValue": "always",
+        "stacking": "none",
+        "groupWidth": 0.7,
+        "barWidth": 0.97,
+        "barRadius": 0
+      }
+    },
+    {
+      "id": 7,
+      "title": "Average time to close (hours)",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "maintenance-postgres"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT AVG(EXTRACT(EPOCH FROM (history.changed_at - requests.created_at)) / 3600.0)::double precision AS value FROM maintenance_requests AS requests JOIN request_status_history AS history ON history.request_id = requests.id WHERE history.new_status IN ('done', 'rejected') AND history.previous_status IS NOT NULL",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 8,
+      "title": "Equipment load (requests)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "maintenance-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 24
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT equipment.name AS equipment, COUNT(requests.id)::bigint AS requests FROM equipment LEFT JOIN maintenance_requests AS requests ON requests.equipment_id = equipment.id GROUP BY equipment.id, equipment.name ORDER BY requests DESC, equipment.name",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Overdue planned maintenance",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "maintenance-postgres"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 24
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT COUNT(*)::bigint AS value FROM maintenance_requests WHERE planned_at < NOW() AND status NOT IN ('done', 'rejected')",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    }
+  ]
+}

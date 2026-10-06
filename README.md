@@ -13,21 +13,113 @@ Open-Meteo.
 
 ## Установка и запуск
 
+Для локальной разработки:
+
 ```bash
 npm install
-copy .env.example .env
 docker compose up -d db
 npm run db:migrate
 npm run db:seed:all
 npm run dev
 ```
 
+## Проверка и тесты
+
+```bash
+npm test
+```
+
+Команда запускает Jest с отчётом о покрытии. В результате создаётся каталог
+`coverage/` с HTML/LCOV-отчётами. Он генерируется автоматически, не относится к
+бизнес-логике приложения и не должен попадать в Git; каталог уже исключён в
+`.gitignore`.
+
+## Развёртывание через Docker Compose
+
+Нужны Linux VM с установленными Docker Engine и Compose plugin. Склонируйте
+репозиторий, скопируйте `.env.example` в `.env` и замените примеры паролей,
+`ACCESS_TOKEN_SECRET` и учётные данные Grafana. Секрет подписи можно получить
+командой `openssl rand -hex 32`. Для начального администратора задайте
+`AUTH_BOOTSTRAP_ADMIN_EMAIL` и `AUTH_BOOTSTRAP_ADMIN_PASSWORD`.
+Задайте `GRAFANA_DOMAIN` равным IP-адресу или DNS-имени VM, по которому
+пользователи открывают сервис.
+
+После настройки `.env` весь стек собирается, применяет миграции и запускается
+одной командой:
+
+```bash
+docker compose up --build -d
+```
+
+Заполните новые `GRAFANA_ADMIN_*` и `GRAFANA_DB_PASSWORD` даже если ранее уже
+создавали локальный `.env` по старому примеру.
+
+Открытым на хосте будет только Nginx (`HTTP_PORT`, по умолчанию `80`).
+PostgreSQL, Node.js API, Prometheus и Grafana доступны внутри Docker-сети.
+Проверить запуск и логи можно командами:
+
+```bash
+docker compose ps
+docker compose logs -f api nginx
+```
+
+Демо-данные не загружаются автоматически. На чистой базе их можно добавить
+отдельным одноразовым шагом; сидер не предназначен для повторного запуска на
+уже заполненной базе:
+
+```bash
+docker compose --profile seed run --rm seed
+```
+
+| Адрес | Назначение |
+|---|---|
+| `http://<VM>/api/health/live` | Liveness процесса |
+| `http://<VM>/api/health/ready` | Готовность API и PostgreSQL |
+| `http://<VM>/api/docs` | Swagger UI (после настройки OpenAPI) |
+| `http://<VM>/grafana/` | Grafana; войти данными `GRAFANA_ADMIN_USER` и `GRAFANA_ADMIN_PASSWORD` |
+
+Grafana автоматически получает Prometheus и PostgreSQL datasource и dashboard
+`CaseLab Maintenance API`. Для SQL-панелей используется отдельный PostgreSQL
+пользователь `grafana_reader` с правами только на чтение разрешённых бизнес-
+таблиц; таблицы пользователей и сессий ему недоступны. После применения
+миграций отдельный шаг автоматически создаёт/обновляет эту роль и выдаёт ей
+права только на необходимые таблицы, в том числе при использовании ранее
+созданного тома. Пароль Grafana для PostgreSQL задаётся отдельно через
+`GRAFANA_DB_PASSWORD`.
+
+Prometheus собирает `/metrics` напрямую внутри Docker-сети. Путь `/metrics` и
+интерфейс Prometheus через Nginx не публикуются; Grafana требует собственную
+авторизацию. Prometheus вычисляет alert `MaintenanceApiHighServerErrorRate`,
+если доля HTTP 5xx выше 5% в течение двух минут. Его состояние можно проверить
+изнутри контейнера:
+
+```bash
+docker compose exec prometheus wget -qO- http://127.0.0.1:9090/api/v1/alerts
+```
+
+При срабатывании проверьте панель ошибок в Grafana, затем сопоставьте период и
+`requestId` с логами `docker compose logs api`; если readiness не проходит,
+проверьте БД командой `docker compose logs db` и состояние `docker compose ps`.
+После исправления проверьте, что alert вернулся в состояние `inactive`.
+
+Перед первым запуском укажите в `.env` `ACCESS_TOKEN_SECRET` (не менее 32
+символов) и задайте `AUTH_BOOTSTRAP_ADMIN_EMAIL` вместе с
+`AUTH_BOOTSTRAP_ADMIN_PASSWORD`. При старте API создаст эту учётную запись с
+ролью `admin`, если её ещё нет. Пароль существующей учётной записи при
+перезапуске не меняется. Для входа техника задайте все три переменные
+`AUTH_BOOTSTRAP_TECHNICIAN_EMAIL`, `AUTH_BOOTSTRAP_TECHNICIAN_PASSWORD` и
+`AUTH_BOOTSTRAP_TECHNICIAN_ID`; сначала примените сиды, затем возьмите ID
+специалиста из `technicians`. Обычная регистрация всегда создаёт только
+`viewer`.
+
 Миграции и сиды создаются в `db/migrations` и `db/seeders`. До добавления
 соответствующих файлов команды миграции/сидирования не создают прикладную схему
 и не наполняют базу. Так как пакет использует ESM, файлы CLI миграций и сидов
 должны быть CommonJS-файлами `.cjs` (сгенерированный CLI `.js` нужно переименовать).
 Сервер дожидается доступности PostgreSQL перед запуском;
-`GET /api/health` проверяет подключение через Sequelize.
+`GET /api/health/live` проверяет, что процесс отвечает, а
+`GET /api/health/ready` проверяет подключение к PostgreSQL. Старый путь
+`GET /api/health` оставлен как alias readiness-проверки.
 
 Для production:
 
@@ -46,11 +138,22 @@ npm start
 |---|---:|---|
 | `NODE_ENV` | - | `production` скрывает детали внутренних ошибок |
 | `PORT` | `3000` | Порт HTTP-сервера |
+| `HTTP_PORT` | `80` | Публикуемый порт Nginx на VM |
 | `CORS_ORIGINS` | `http://localhost:5173` | Разрешённые origins через запятую |
 | `RATE_LIMIT_WINDOW_MS` | `900000` | Окно rate limit, мс |
 | `RATE_LIMIT_MAX` | `100` | Максимум запросов `/api` за окно с одного IP |
 | `JSON_BODY_LIMIT` | `2mb` | Максимальный JSON body |
 | `URL_ENCODED_BODY_LIMIT` | `10kb` | Максимальный URL-encoded body |
+| `LOG_LEVEL` | `info` | Минимальный уровень структурированных логов: `fatal`, `error`, `warn`, `info`, `debug` |
+| `TRUST_PROXY_HOPS` | `1` | Число доверенных proxy hops перед API; выставить равным числу reverse proxy |
+| `ACCESS_TOKEN_SECRET` | обязательна | Секрет подписи access-токенов, минимум 32 символа |
+| `AUTH_COOKIE_SECURE` | `true` в production, иначе `false` | Добавляет флаг `Secure` refresh-cookie; для выбранного HTTP-развёртывания в `.env` выставить `false` |
+| `AUTH_COOKIE_SAME_SITE` | `lax` | Атрибут SameSite refresh-cookie; `none` требует `Secure=true` |
+| `AUTH_BOOTSTRAP_ADMIN_EMAIL` | - | Email начального администратора; задавать вместе с паролем |
+| `AUTH_BOOTSTRAP_ADMIN_PASSWORD` | - | Пароль начального администратора |
+| `AUTH_BOOTSTRAP_TECHNICIAN_EMAIL` | - | Email начального техника; задавать вместе с паролем и ID |
+| `AUTH_BOOTSTRAP_TECHNICIAN_PASSWORD` | - | Пароль начального техника |
+| `AUTH_BOOTSTRAP_TECHNICIAN_ID` | - | ID существующего специалиста из `technicians` |
 | `WEATHER_API_URL` | Open-Meteo | URL внешнего погодного API |
 | `REQUEST_TIMEOUT_MS` | `5000` | Таймаут запроса к погодному API |
 | `WEATHER_FORECAST_DAYS` | `3` | Количество дней прогноза |
@@ -68,6 +171,10 @@ npm start
 | `PG_POOL_MIN` | `0` | Минимальный размер пула Sequelize |
 | `PG_POOL_ACQUIRE_MS` | `30000` | Таймаут получения соединения из пула |
 | `PG_POOL_IDLE_MS` | `10000` | Время простоя соединения до закрытия |
+| `GRAFANA_ADMIN_USER` | `admin` в `.env.example` | Пользователь входа в Grafana |
+| `GRAFANA_ADMIN_PASSWORD` | - | Пароль входа в Grafana; замените пример перед развёртыванием |
+| `GRAFANA_DB_PASSWORD` | - | Пароль ограниченного DB-пользователя Grafana; замените пример перед развёртыванием |
+| `GRAFANA_DOMAIN` | `localhost` | IP-адрес или DNS-имя VM, используемое Grafana для ссылок и перенаправлений |
 
 Для отката последней миграции используйте `npm run db:migrate:undo`, всех
 миграций - `npm run db:migrate:undo:all`. Команды `db:seed:all` и
@@ -80,7 +187,14 @@ npm start
 
 | Метод | Путь | Назначение |
 |---|---|---|
+| POST | `/auth/register` | Регистрация пользователя с ролью `viewer` |
+| POST | `/auth/login` | Вход, access-токен и HttpOnly refresh-cookie |
+| POST | `/auth/refresh` | Ротация refresh-cookie и выдача нового access-токена |
+| POST | `/auth/logout` | Отзыв refresh-сессии и удаление cookie |
+| GET | `/auth/me` | Текущий пользователь и роль (нужен Bearer-токен) |
 | GET | `/health` | Проверка сервиса |
+| GET | `/health/live` | Liveness-проверка процесса без обращения к БД |
+| GET | `/health/ready` | Readiness-проверка, включает доступность PostgreSQL |
 | GET | `/equipment` | Список оборудования: фильтры, сортировка, пагинация |
 | POST | `/equipment` | Создание оборудования |
 | GET | `/equipment/:id` | Получение оборудования |
@@ -99,6 +213,32 @@ npm start
 | DELETE | `/requests/:id` | Удаление заявки |
 | GET | `/sites/:id/summary` | Сводка по площадке |
 | GET | `/reports/equipment-load` | SQL-отчёт по нагрузке оборудования |
+
+Метрики Prometheus доступны отдельно от API по `GET /metrics`; этот путь
+предназначен для внутреннего сбора и должен быть закрыт от внешних клиентов на
+уровне reverse proxy.
+
+Кроме `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout` и
+`/health`, все API-маршруты требуют заголовок
+`Authorization: Bearer <accessToken>`.
+
+| Роль | Права |
+|---|---|
+| `viewer` | Чтение оборудования, заявок, истории и отчётов |
+| `technician` | Права viewer, создание и редактирование заявок; смена статуса только назначенных ему заявок |
+| `admin` | Все операции: изменение/удаление оборудования и заявок, назначение бригад |
+
+Access-токен действует 15 минут. Refresh-токен случайный, хранится в БД только
+в виде SHA-256-хеша, а в браузер передаётся в HttpOnly cookie сроком на 30 дней;
+при обновлении старый токен отзывается. Для HTTP-развёртывания на учебной VM
+`AUTH_COOKIE_SECURE=false`, иначе браузер не отправит cookie без HTTPS. При
+переходе на HTTPS включите `AUTH_COOKIE_SECURE=true`. `SameSite=Lax` ограничивает
+межсайтовую отправку cookie и подходит для UI/API на одном сайте; для
+межсайтовой схемы понадобится `SameSite=None; Secure` и отдельная защита от
+CSRF.
+
+Лимит входа отдельный: не более 10 попыток за 15 минут с одного IP. Ошибочный
+вход возвращает одинаковый ответ для неизвестного email и неверного пароля.
 
 У списков доступны `page`, `limit` (до 100), `sortBy`, `sortOrder`, а также
 ресурсные фильтры: `status`, `type`, `priority`, `equipmentId` и диапазоны дат.
@@ -273,6 +413,7 @@ datetime, фильтр по `created_at` заявок) и `minRequests` (цел�
 ```
 
 Основные коды: `400` - ошибка валидации, `404` - ресурс не найден,
+`401` - отсутствующая/невалидная аутентификация, `403` - недостаточно прав,
 `409` - конфликт, `422` - бизнес-правило бригады не выполнено,
 `429` - превышен лимит, `502` - недоступен погодный сервис, `500` - внутренняя
 ошибка. В development добавляется `stack`; в production детали внутренних
@@ -322,10 +463,26 @@ curl -X PATCH http://localhost:3000/api/requests/<done-request-id>/status \
 - CORS разрешает только origins из `CORS_ORIGINS`.
 - Для всех `/api` включён rate limit: по умолчанию 100 запросов за 15 минут
   с одного IP; при превышении возвращается `429` и `RateLimit-*` headers.
+- Пароли хранятся в bcrypt-хеше; в API-ответы и логи пароли/хеши не включаются.
+- Access-токены подписываются `ACCESS_TOKEN_SECRET` и действуют 15 минут;
+  refresh-токены отзываются и ротируются при обновлении.
+- Регистрация не позволяет выбрать роль; повышение прав возможно только
+  при bootstrap начальных аккаунтов и прямом администрировании БД.
 - `helmet` устанавливает защитные заголовки, включая HSTS и запрет
   встраивания во frame.
 - Размеры JSON и URL-encoded тела ограничены соответствующими переменными.
 - `requestId` возвращается в ошибке и записывается в логах для диагностики.
+- Логи выводятся построчно в JSON в stdout, с `requestId`, путём без query
+  string, статусом, длительностью и IP клиента. Уровень задаётся `LOG_LEVEL`.
+- `GET /metrics` отдаёт стандартный Prometheus exposition format, включая
+  `maintenance_api_http_requests_total`, `maintenance_api_http_request_duration_seconds`
+  и `maintenance_api_http_errors_total`. Метрики разбиты по методу, шаблону
+  маршрута и коду ответа; URL-параметры не создают отдельные серии.
+- `/api/health/live` не зависит от PostgreSQL; `/api/health/ready` возвращает
+  `503`, когда БД недоступна.
+- За Nginx выставьте `TRUST_PROXY_HOPS` в число proxy hops (обычно `1`) и не
+  публикуйте порт Node.js напрямую: Express использует эту настройку для IP
+  клиента и ограничителя частоты.
 
 ## Структура проекта
 
